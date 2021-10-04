@@ -1,0 +1,3 @@
+type intTransformer [int -> int]
+
+define increment [intTransformer] (x) as x + 1
