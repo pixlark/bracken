@@ -4,14 +4,14 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 
-name:           typer
+name:           bracken
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/typer#readme>
-homepage:       https://github.com/githubuser/typer#readme
-bug-reports:    https://github.com/githubuser/typer/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2021 Author name here
+description:    Please see the README on GitHub at <https://github.com/pixlark/bracken#readme>
+homepage:       https://github.com/pixlark/bracken#readme
+bug-reports:    https://github.com/pixlark/bracken/issues
+author:         pixlark
+maintainer:     t1000.pixlark@gmail.com
+copyright:      2021 pixlark
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
@@ -21,13 +21,13 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/typer
+  location: https://github.com/pixlark/bracken
 
 library
   exposed-modules:
       Lib
   other-modules:
-      Paths_typer
+      Paths_bracken
   hs-source-dirs:
       src
   build-depends:
@@ -35,29 +35,29 @@ library
     , megaparsec >=9.0.1
   default-language: Haskell2010
 
-executable typer-exe
+executable bracken-exe
   main-is: Main.hs
   other-modules:
-      Paths_typer
+      Paths_bracken
   hs-source-dirs:
       app
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , bracken
     , megaparsec >=9.0.1
-    , typer
   default-language: Haskell2010
 
-test-suite typer-test
+test-suite bracken-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_typer
+      Paths_bracken
   hs-source-dirs:
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , bracken
     , megaparsec >=9.0.1
-    , typer
   default-language: Haskell2010

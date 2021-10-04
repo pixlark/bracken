@@ -1,3 +1,3 @@
-# Changelog for typer
+# Changelog for bracken
 
 ## Unreleased changes
