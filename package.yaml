@@ -1,9 +1,9 @@
 name:                cMajor
 version:             0.1.0.0
-github:              "pixlark/c-major"
+github:              "pixlark/cMajor"
 license:             BSD3
 author:              "pixlark"
-maintainer:          "t1000.pixlark@gmail.com"
+maintainer:          "cMajor@brooke2k.com"
 copyright:           "2021 pixlark"
 
 extra-source-files:
@@ -17,7 +17,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/pixlark/c-major#readme>
+description:         Please see the README on GitHub at <https://github.com/pixlark/cMajor#readme>
 
 dependencies:
 - base >= 4.7 && < 5
