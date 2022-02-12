@@ -17,8 +17,8 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/12.yaml
+resolver: lts-18.22
+#  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/12.yaml
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -41,6 +41,11 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 # extra-deps: []
+
+#extra-deps:
+# - megaparsec-9.2.0
+# - git: https://github.com/mrkkrp/megaparsec.git
+#   commit: 3d26407aa3bb9062adc0fd4cf5e6a2e5a26a4c11
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

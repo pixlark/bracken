@@ -1,3 +1,6 @@
-type intTransformer [int -> int]
+var myVariable: int = 15;
 
-define increment [intTransformer] (x) as x + 1
+var firstClassFunction: func(int, int) -> int = myAddFunction;
+
+func myAddFunction(a: int, b: int) -> int
+do a + b

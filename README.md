@@ -1,6 +1,5 @@
-# bracken
+# c-major
 
-Bracken is an ML-like programming language in excruciatingly early development.
+C major is a lightweight layer that abstracts C into a nicer, slightly more powerful language.
 
 It's built with Haskell.
-
