@@ -4,6 +4,7 @@
 module Parser (langParser
               , TypeExpression(..)
               , Expression(..)
+              , ScopedStatement(..)
               , ValueBinding(..)
               , FunctionBinding(..)
               , AST(..)) where
@@ -15,16 +16,18 @@ import qualified Text.Megaparsec.Char.Lexer as Lexer
 
 type LangParser = Parsec Void String
 
-data TypeExpression = TypeInt
+data TypeExpression = TypeNothing
+                    | TypeInt
                     | TypeBool
                     | TypeFunction [TypeExpression] TypeExpression
-  deriving(Show)
+  deriving(Show, Eq)
 
 data ScopedStatement = ScopedExpression Expression
                      | ScopedBinding    ValueBinding
   deriving(Show)
 
-data Expression = ExprInt Int
+data Expression = ExprNothing
+                | ExprInt Int
                 | ExprBool Bool
                 | ExprIdentifier String
                 | ExprScope [ScopedStatement] (Maybe Expression)
@@ -38,13 +41,13 @@ data ValueBinding = ValueBinding { identifier :: String
   deriving(Show)
 
 data FunctionBinding = FunctionBinding { identifier :: String
-                                       , parameters :: [(String, TypeExpression)]
-                                       , returnType :: TypeExpression
+                                       , typeExpr :: TypeExpression
+                                       , parameterNames :: [String]
                                        , body :: Expression }
   deriving(Show)
 
-data AST = ToplevelVar ValueBinding
-         | ToplevelFunction FunctionBinding
+data AST = TopLevelVar ValueBinding
+         | TopLevelFunction FunctionBinding
   deriving(Show)
 
 --
@@ -92,7 +95,7 @@ reservedWord word = do
   return rword
 
 reservedWords :: [String]
-reservedWords = ["let", "true", "false", "func", "do"]
+reservedWords = ["let", "true", "false", "func", "do", "nothing"]
 
 identifierParser :: LangParser String
 identifierParser = do
@@ -114,14 +117,15 @@ typeAtomParser = try functionParser
   where recursiveParser = parentheses typeExpressionParser
         functionParser = do
           reservedWord "func"
-          params <- parentheses (sepEndBy1 typeExpressionParser (symbol ","))
+          params <- parentheses (sepEndBy typeExpressionParser (symbol ","))
           symbol "->"
           ret <- typeExpressionParser
           return $ TypeFunction params ret
         builtinParser =
           let builtin s c = reservedWord s >> return c
-          in    builtin "int" TypeInt
-            <|> builtin "bool" TypeBool
+          in    builtin "int"     TypeInt
+            <|> builtin "bool"    TypeBool
+            <|> builtin "nothing" TypeNothing
 
 typeExpressionParser :: LangParser TypeExpression
 typeExpressionParser = typeAtomParser
@@ -132,11 +136,13 @@ typeExpressionParser = typeAtomParser
 
 expressionAtomParser :: LangParser Expression
 expressionAtomParser = try recursiveParser
+                   <|> try nothingParser
                    <|> try intParser
                    <|> try boolParser
                    <|> try bindingParser
                    <|>     scopeParser
   where recursiveParser = parentheses expressionParser
+        nothingParser = reservedWord "nothing" >> return ExprNothing
         intParser = do
           ds <- lexeme $ some digitChar
           return $ ExprInt $ read ds
@@ -162,7 +168,7 @@ scopedStatementParser =  (reservedWord "var" >> ScopedBinding <$> valueBindingPa
                      <|> ScopedExpression <$> expressionParser
 
 --
--- Toplevel bindings
+-- TopLevel bindings
 --
 
 -- For a var declaration, parses:
@@ -190,13 +196,16 @@ functionBindingParser = do
   returnType <- typeExpressionParser
   reservedWord "do"
   body <- expressionParser
-  return FunctionBinding { identifier, parameters, returnType, body }
+  return FunctionBinding { identifier
+                         , typeExpr = TypeFunction (map snd parameters) returnType
+                         , parameterNames = map fst parameters
+                         , body }
     where parameterParser = do
             identifier <- lexeme identifierParser
             symbol ":"
             typeExpr <- typeExpressionParser
             return (identifier, typeExpr)
-          parameterListParser = parentheses $ sepEndBy1 parameterParser (symbol ",")
+          parameterListParser = parentheses $ sepEndBy parameterParser (symbol ",")
 
 toplevelParser :: LangParser AST
 toplevelParser = do
@@ -204,9 +213,9 @@ toplevelParser = do
 
   inner <- case defn of
     "var"  -> (valueBindingParser `endedBy` (symbol ";"))
-          >>= return . ToplevelVar
+          >>= return . TopLevelVar
     "func" -> functionBindingParser
-          >>= return . ToplevelFunction
+          >>= return . TopLevelFunction
 
   space
   return inner

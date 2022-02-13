@@ -1,6 +1,5 @@
-var myVariable: int = 15;
-
-var firstClassFunction: func(int, int) -> int = myAddFunction;
-
-func myAddFunction(a: int, b: int) -> int
-do a + b
+func f(x: int, y: bool) -> int
+do {
+   var z: int = x + y;
+   z
+}

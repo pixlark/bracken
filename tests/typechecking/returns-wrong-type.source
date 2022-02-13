@@ -1,0 +1,2 @@
+func f(x: int) -> bool
+do x
