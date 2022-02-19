@@ -1,5 +1,5 @@
-func f(x: int, y: bool) -> int
-do {
-   var z: int = x + y;
-   z
-}
+var x: int = 5;
+var z: int = 6;
+
+func f(y: int) -> int
+do x + y

@@ -1,2 +1,2 @@
-command = 'cMajor %%'
+command = 'cMajor -ns %%'
 sigil = '$$'

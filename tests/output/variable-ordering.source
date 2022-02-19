@@ -1,0 +1,6 @@
+var a: int = 0;
+var f: int = 1;
+var g: int = z;
+var x: int = a + y;
+var y: int = g + z;
+var z: int = a + f;
