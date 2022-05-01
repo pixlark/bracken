@@ -70,21 +70,35 @@ instance Emit CTypeExpr where
     =  Text.concat [ emit ret
                    , pack "(*"
                    , fromMaybe "" $ (emit . sanitize) <$> maybeName
+                   , pack ")("
                    , emitSeparated params ","
                    , pack ")" ]
 
-data CStmt = CVarDeclaration { name     :: String
-                             , typeExpr :: CTypeExpr
-                             , value    :: CExpr }
-           | CStmtExpr CExpr
+data CVarDeclaration = CVarDeclaration { name     :: String
+                                       , typeExpr :: CTypeExpr
+                                       , value    :: CExpr }
 
-instance Emit CStmt where
+instance Emit CVarDeclaration where
+  emit CVarDeclaration { name, typeExpr = typeExpr@(CTypeFuncPtr ptrName _ _), value }
+    = if isNothing ptrName
+      then error "Internal error: Somehow a function pointer binding did not get tagged with its name."
+      else separated [ emit typeExpr
+                     , pack "="
+                     , emit value
+                     , pack ";" ] " "
   emit CVarDeclaration { name, typeExpr, value }
     = separated [ emit typeExpr
                 , emit $ sanitize name
                 , pack "="
                 , emit value
                 , pack ";" ] " "
+
+data CStmt = CStmtVar CVarDeclaration
+           | CStmtExpr CExpr
+
+instance Emit CStmt where
+  emit (CStmtVar decl)  = emit decl
+  emit (CStmtExpr expr) = emit expr
 
 data CExpr = CInt        Int
            | CIdentifier String
@@ -102,10 +116,8 @@ data C = CFunction { name           :: String
                    , returnType     :: CTypeExpr
                    , funcAttributes :: Set.Set FuncAttribute
                    , body           :: Maybe CExpr }
-       | CGlobal   { name          :: String
-                   , typeExpr      :: CTypeExpr
-                   , varAttributes :: Set.Set VarAttribute
-                   , value         :: CExpr }
+       | CGlobal   { varAttributes :: Set.Set VarAttribute
+                   , declaration :: CVarDeclaration }
        | CText     { text :: Text.Text }
 
 instance Emit CParameter where
@@ -123,11 +135,9 @@ instance Emit C where
     where emittedBody = case body of
             Nothing -> ";"
             Just expr -> Text.unwords [ "{", "return", emit expr, "; }" ]
-  emit (CGlobal {name, typeExpr, varAttributes, value })
+  emit (CGlobal { varAttributes, declaration })
     = Text.unwords [ emitSeparated (Set.toList varAttributes) " "
-                   , emit typeExpr
-                   , emit $ sanitize name
-                   , "=", emit value, ";" ]
+                   , emit declaration ]
   emit (CText { text }) = text
 
 --
@@ -145,10 +155,11 @@ instance Ord ValueBinding where
 compileTypeExpression :: TypeExpression -> CTypeExpr
 compileTypeExpression expr
   = case expr of
-      TypeNothing      -> CTypeInt
-      TypeInt          -> CTypeInt
-      TypeBool         -> CTypeInt
-      TypeFunction _ _ -> undefined -- AGHHHH
+      TypeNothing -> CTypeInt
+      TypeInt     -> CTypeInt
+      TypeBool    -> CTypeInt
+      TypeFunction params ret
+        -> CTypeFuncPtr Nothing (map compileTypeExpression params) (compileTypeExpression ret)
 
 compileExpression :: Expression -> CExpr
 compileExpression expr
@@ -160,19 +171,27 @@ compileExpression expr
       ExprScope _ _    -> undefined -- AGHHHH
       ExprAdd a b      -> CAdd (compileExpression a) (compileExpression b)
 
-compileValueBinding :: ValueBinding -> C
+compileValueBinding :: ValueBinding -> CVarDeclaration
+compileValueBinding (ValueBinding { identifier, typeExpr = (TypeFunction params ret), expr })
+  = CVarDeclaration { name = identifier
+                    , typeExpr = binding
+                    , value = compileExpression expr }
+    where binding = CTypeFuncPtr (Just identifier)
+                                 (map compileTypeExpression params)
+                                 (compileTypeExpression ret)
 compileValueBinding (ValueBinding { identifier, typeExpr, expr })
-  = CGlobal { name = identifier
-            , varAttributes = Set.empty
-            , typeExpr = compileTypeExpression typeExpr
-            , value = compileExpression expr }
+  = CVarDeclaration { name = identifier
+                    , typeExpr = compileTypeExpression typeExpr
+                    , value = compileExpression expr }
 
 -- TODO(Brooke): Make sure that this works for any collection of
 -- scoped variables, not just toplevel (global) variables
-compileVariables :: [ValueBinding] -> Either String [C]
-compileVariables vars = map compileValueBinding <$> sortedCVars
+compileVariables :: [ValueBinding] -> Set.Set String -> Either String [C]
+compileVariables vars funcNames = (map $ makeGlobal . compileValueBinding) <$> sortedCVars
         -- Figure out the topological ordering of variable declarations
-  where allReferences :: Expression -> [String]
+  where makeGlobal declaration = CGlobal { varAttributes = Set.empty, declaration }
+
+        allReferences :: Expression -> [String]
         allReferences (ExprIdentifier i) = [i]
         allReferences (ExprAdd a b) = (allReferences a) ++ (allReferences b)
         allReferences (ExprScope statements maybeRet)
@@ -182,22 +201,26 @@ compileVariables vars = map compileValueBinding <$> sortedCVars
                 allRefStmt _ = []
         allReferences _ = []
 
-        lookupVar :: String -> ValueBinding
-        lookupVar i = case filter (\(ValueBinding { identifier } ) -> i == identifier) vars of
-                        (v:_) -> v
-                        []    -> error "Internal Error: Bad lookupVar!"
+        lookupVar :: String -> Maybe ValueBinding
+        lookupVar i
+          -- functions are variables but their prototypes are defined
+          -- above in the source, so they don't need to be part of the
+          -- dependency DAG
+          | i `Set.member` funcNames = Nothing
+          | otherwise = case filter (\(ValueBinding { identifier } ) -> i == identifier) vars of
+                          (v:_) -> Just v
+                          []    -> error $ "Internal error: Bad lookupVar on " ++ i
 
         genVarDeps :: [(ValueBinding, ValueBinding)] -> ValueBinding -> [(ValueBinding, ValueBinding)]
         genVarDeps pairs binding@(ValueBinding { expr })
-          = [(binding, r) | r <- map lookupVar $ allReferences expr] ++ pairs
+          = [(binding, r) | r <- catMaybes $ map lookupVar $ allReferences expr] ++ pairs
         varDeps :: [(ValueBinding, ValueBinding)]
         varDeps = foldl' genVarDeps [] vars
 
         disconnectedDag = DAG.fromNodes vars
         sortedCVars
           = maybe (Left "Cyclic dependency in global variables!") Right
-          $ DAG.order
-          $ foldl' (flip DAG.depends) disconnectedDag varDeps
+          $ DAG.order $ foldl' (flip DAG.depends) disconnectedDag varDeps
 
 compilePrototype :: FunctionBinding -> Either String C
 compilePrototype (FunctionBinding { identifier, typeExpr, parameterNames, body })
@@ -249,8 +272,8 @@ compileSource declarations flags
                               then Right Nothing
                               else Left "No @entry directive specified"
                         _  -> Left "Multiple @entry directives specified"
-       cVars       <- compileVariables vars
        cPrototypes <- sequence $ map compilePrototype functions
+       cVars       <- compileVariables vars (Set.fromList [name | CFunction { name } <- cPrototypes])
        cFunctions  <- sequence $ map compileFunction  functions
        mainFunc    <- sequenceA $ makeEntryFunction cPrototypes <$> entrySymbol
        return $ concat $ [ cPrototypes

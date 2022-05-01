@@ -175,7 +175,7 @@ expressionParser = additionParser
 
 scopedStatementParser :: LangParser ScopedStatement
 scopedStatementParser =  (reservedWord "var" >> ScopedBinding <$> valueBindingParser)
-                     <|> ScopedExpression <$> expressionParser
+                     <|> (ScopedExpression <$> expressionParser)
 
 --
 -- TopLevel bindings
