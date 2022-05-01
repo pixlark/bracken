@@ -17,7 +17,7 @@ compileCExecutable source cc = do
   hClose handle
 
   let execName = "executable"
-  ok <- catch (do callProcess cc [path, "-o " ++ execName]; return True)
+  ok <- catch (do callProcess cc [path, "-o" ++ execName]; return True)
         $ \(e :: IOException) -> do hPutStrLn stderr ccErrorMsg; return False
 
   removeFile path

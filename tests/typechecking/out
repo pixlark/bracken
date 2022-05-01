@@ -1,4 +1,0 @@
-$$ "repeated-vars.source" error
-$$ "returns-wrong-type.source" error
-$$ "undeclared-variable.source" error
-$$ "undeclared-variable-inside-scope.source" error

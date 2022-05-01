@@ -66,22 +66,33 @@ checkFunction globalEnv (TopLevelFunction func@(FunctionBinding { identifier
         expectFunction _ = Left $ unwords ["Internal Error: Somehow the function", identifier, "was assigned a non-function type."]
 checkFunction _ _ = Right () -- Ignore all toplevel declarations that aren't functions
 
-checkTopLevel :: AST -> Env -> Either String Env
-checkTopLevel (TopLevelVar (ValueBinding { identifier
+checkDirective :: Directive -> Either String ()
+checkDirective (Directive { name = "entry", arguments })
+  = case arguments of
+      [ExprIdentifier ident] -> return ()
+      _ -> Left "@entry directive takes one identifier as its argument"
+checkDirective (Directive { name })
+  = Left $ concat ["No such directive '", name, "' exists"]
+
+checkBindings :: AST -> Env -> Either String Env
+checkBindings (TopLevelVar (ValueBinding { identifier
                                          , typeExpr
                                          , expr })) env
   = do env <- bindType env (identifier, typeExpr)
        return env
-checkTopLevel (TopLevelFunction func@(FunctionBinding { identifier
+checkBindings (TopLevelFunction func@(FunctionBinding { identifier
                                                       , typeExpr
                                                       , parameterNames
                                                       , body })) env
   = do env <- bindType env (identifier, typeExpr)
        return env
+checkBindings (TopLevelDirective _) env = return env
 
 typecheck :: [AST] -> Either String ()
 typecheck ast = do
-  env <- check checkTopLevel Map.empty ast
+  -- Check all toplevel directives for correctness
+  mapM_ checkDirective [d | TopLevelDirective d <- ast]
+  -- Generate an environment based on toplevel bindings
+  env <- foldl' (\env a -> env >>= checkBindings a) (Right Map.empty) ast
+  -- Descend into function bodies and typecheck based on toplevel environment
   (const ()) <$> mapM_ (checkFunction env) ast
-  where check :: (AST -> e -> Either String e) -> e -> [AST] -> Either String e
-        check f e ast = foldl' (\e a -> e >>= f a) (Right e) ast

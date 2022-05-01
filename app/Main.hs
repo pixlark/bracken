@@ -16,17 +16,9 @@ import Options.Applicative as A
 import Data.Semigroup ((<>))
 
 import CC (compileCExecutable)
-import Output (compileSource, emitC)
+import Output
 import Parser (langParser)
 import Typechecker (typecheck)
-
-cMajor :: String -> String -> Either String String
-cMajor filename source
-  = do ast <- Bifunctor.first errorBundlePretty
-            $ runParser langParser filename source
-       typecheck ast
-       cAst <- compileSource ast
-       return $ unpack $ emitC cAst
 
 exitErr :: String -> IO ()
 exitErr msg = do hPutStrLn stderr msg; exitWith $ ExitFailure 1
@@ -34,6 +26,7 @@ exitErr msg = do hPutStrLn stderr msg; exitWith $ ExitFailure 1
 data Arguments = Arguments
   { sourceFile :: String
   , noExecutable :: Bool
+  , noEntry :: Bool
   }
 
 argTemplate :: A.Parser Arguments
@@ -43,8 +36,19 @@ argTemplate = Arguments
                             <> metavar "PATH"
                             <> help "Source file to be compiled" )
               <*> switch ( long "noExecutable"
-                         <> short 'n'
-                         <> help "Prevent actual code generation from running" )
+                         <> short 'x'
+                         <> help "Only generate C code, don't compile it" )
+              <*> switch ( long "noEntry"
+                         <> short 'e'
+                         <> help "Don't require a specified entry point" )
+
+cMajor :: String -> String -> Arguments -> Either String String
+cMajor filename source args
+  = do ast <- Bifunctor.first errorBundlePretty
+            $ runParser langParser filename source
+       typecheck ast
+       cAst <- compileSource ast $ makeFlags $ if noEntry args then [NoEntryPoint] else []
+       return $ unpack $ emitC cAst
 
 main :: IO ()
 main = do
@@ -52,10 +56,6 @@ main = do
                        $ fullDesc
                       <> progDesc "Run the cMajor compiler"
                       <> header "cMajor - superpowered C")
-
---  unless ((length args) == 1)
---    $ do hPutStrLn stderr "Expecting one source file"
---         exitWith $ ExitFailure 1
 
   s <- catch (readFile $ sourceFile args)
     $ \(e :: IOException) -> do hPutStrLn stderr
@@ -65,9 +65,9 @@ main = do
                                 exitWith $ ExitFailure 1
                                 return undefined -- Unreachable
 
-  let result = Bifunctor.first ("Error: " ++) $ cMajor (sourceFile args) s
+  let result = Bifunctor.first ("Error: " ++) $ cMajor (sourceFile args) s args
   genSrc <- case result of
-    Left err -> do hPutStrLn stderr s; exitWith $ ExitFailure 1
+    Left err -> do hPutStrLn stderr err; exitWith $ ExitFailure 1
     Right genSrc -> do putStrLn genSrc
                        return genSrc
 

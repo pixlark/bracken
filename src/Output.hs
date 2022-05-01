@@ -1,8 +1,9 @@
 {-# LANGUAGE DuplicateRecordFields
            , OverloadedStrings
-           , NamedFieldPuns #-}
+           , NamedFieldPuns
+           , FlexibleInstances #-}
 
-module Output (compileSource, emitC) where
+module Output (compileSource, emitC, CompileFlag(..), CompileFlags, makeFlags) where
 
 import Control.Monad (sequence)
 import Data.Either (lefts, rights)
@@ -10,6 +11,7 @@ import Data.List
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import Data.Text (pack)
 
 import Parser
 import qualified DAG as DAG
@@ -23,8 +25,24 @@ import Debug.Trace
 class Emit a where
   emit :: a -> Text.Text
 
-emitSeparated :: (Emit a) => [a] -> Text.Text -> Text.Text
-emitSeparated xs sep = Text.concat $ intersperse sep $ map emit xs
+  emitAll :: [a] -> Text.Text
+  emitAll s = Text.concat $ map emit s
+
+  -- First `emit`s all members of the list before separating
+  emitSeparated :: [a] -> String -> Text.Text
+  emitSeparated s sep = separated (map emit s) sep
+
+separated :: [Text.Text] -> String -> Text.Text
+separated s sep = Text.concat $ intersperse (pack sep) $ s
+
+-- Prevent function/variable names from clashing with important
+-- runtime names
+newtype Sanitized = Sanitized String
+sanitize :: String -> Sanitized
+sanitize name = Sanitized $ '_':name
+
+instance Emit Sanitized where
+  emit (Sanitized s) = pack s
 
 data FuncAttribute = FuncStatic | FuncExtern
   deriving (Eq, Ord)
@@ -49,10 +67,11 @@ instance Emit CTypeExpr where
   emit CTypeVoid = "void"
   emit CTypeInt  = "int64_t"
   emit (CTypeFuncPtr maybeName params ret)
-    = Text.concat
-    $  [emit ret, "(*", fromMaybe Text.empty (Text.pack <$> maybeName), ")("]
-    ++ [emitSeparated params ","]
-    ++ [")"]
+    =  Text.concat [ emit ret
+                   , pack "(*"
+                   , fromMaybe "" $ (emit . sanitize) <$> maybeName
+                   , emitSeparated params ","
+                   , pack ")" ]
 
 data CStmt = CVarDeclaration { name     :: String
                              , typeExpr :: CTypeExpr
@@ -61,16 +80,20 @@ data CStmt = CVarDeclaration { name     :: String
 
 instance Emit CStmt where
   emit CVarDeclaration { name, typeExpr, value }
-    = Text.unwords [ emit typeExpr, Text.pack name, "=", emit value, ";" ]
+    = separated [ emit typeExpr
+                , emit $ sanitize name
+                , pack "="
+                , emit value
+                , pack ";" ] " "
 
 data CExpr = CInt        Int
            | CIdentifier String
            | CAdd        CExpr  CExpr
 
 instance Emit CExpr where
-  emit (CInt x)        = Text.pack $ show x
-  emit (CIdentifier x) = Text.pack x
-  emit (CAdd a b)      = Text.unwords [emit a, "+", emit b]
+  emit (CInt x)        = pack $ show x
+  emit (CIdentifier x) = emit $ sanitize x
+  emit (CAdd a b)      = separated [emit a, pack "+", emit b] " "
 
 newtype CParameter = CParameter (String, CTypeExpr)
 
@@ -83,15 +106,16 @@ data C = CFunction { name           :: String
                    , typeExpr      :: CTypeExpr
                    , varAttributes :: Set.Set VarAttribute
                    , value         :: CExpr }
+       | CText     { text :: Text.Text }
 
 instance Emit CParameter where
-  emit (CParameter (name, typeExpr)) = Text.unwords [emit typeExpr, Text.pack name]
+  emit (CParameter (name, typeExpr)) = separated [emit typeExpr, emit $ sanitize name] " "
 
 instance Emit C where
   emit (CFunction { name, parameters, returnType, funcAttributes, body })
     = Text.unwords [ emitSeparated (Set.toList funcAttributes) " "
                    , emit returnType
-                   , Text.pack name
+                   , emit $ sanitize name
                    , "("
                    , emitSeparated parameters ","
                    , ")"
@@ -102,8 +126,9 @@ instance Emit C where
   emit (CGlobal {name, typeExpr, varAttributes, value })
     = Text.unwords [ emitSeparated (Set.toList varAttributes) " "
                    , emit typeExpr
-                   , Text.pack name
+                   , emit $ sanitize name
                    , "=", emit value, ";" ]
+  emit (CText { text }) = text
 
 --
 -- Converting our AST to a C AST
@@ -183,7 +208,7 @@ compilePrototype (FunctionBinding { identifier, typeExpr, parameterNames, body }
          { name = identifier
          , parameters = map CParameter $ zip parameterNames (map compileTypeExpression paramTypes)
          , returnType = compileTypeExpression retType
-         , funcAttributes = Set.fromList [ FuncStatic ]
+         , funcAttributes = Set.empty
          , body = Nothing
          }
 
@@ -192,21 +217,50 @@ compileFunction f@(FunctionBinding { body }) = do
   prototype <- compilePrototype f
   return (prototype { body = Just $ compileExpression body } :: C)
 
+makeEntryFunction :: [C] -> String -> Either String C
+makeEntryFunction prototypes entry =
+  case find predicate prototypes of
+    Just _ -> Right $ CText $ Text.pack $
+      "int main() { " ++ ((\(Sanitized s) -> s) $ sanitize entry) ++ "(); }"
+    Nothing -> Left $ "No such zero-argument function " ++ entry ++ " to satisfy @entry directive."
+  where predicate (CFunction { name = entry, parameters = [] }) = True
+        predicate _ = False
+
 cPrelude :: Text.Text
 cPrelude = Text.unlines ["#include <stdint.h>"]
 
-compileSource :: [AST] -> Either String [C]
-compileSource declarations = do cVars       <- compileVariables vars
-                                cPrototypes <- sequence $ map compilePrototype functions
-                                cFunctions  <- sequence $ map compileFunction  functions
-                                return $ concat $ [ cPrototypes
-                                                  , cVars
-                                                  , cFunctions ]
+data CompileFlag = NoEntryPoint
+  deriving(Eq, Ord)
+
+newtype CompileFlags = CompileFlags (Set.Set CompileFlag)
+
+hasFlag :: CompileFlag -> CompileFlags -> Bool
+hasFlag flag (CompileFlags set) = Set.member flag set
+
+makeFlags :: [CompileFlag] -> CompileFlags
+makeFlags = CompileFlags . Set.fromList
+
+compileSource :: [AST] -> CompileFlags -> Either String [C]
+compileSource declarations flags
+  = do entrySymbol <- case [entry | dir@Directive { name = "entry"
+                                                  , arguments = [ExprIdentifier entry] } <- directives] of
+                        [e] -> Right $ Just e
+                        [] -> if hasFlag NoEntryPoint flags
+                              then Right Nothing
+                              else Left "No @entry directive specified"
+                        _  -> Left "Multiple @entry directives specified"
+       cVars       <- compileVariables vars
+       cPrototypes <- sequence $ map compilePrototype functions
+       cFunctions  <- sequence $ map compileFunction  functions
+       mainFunc    <- sequenceA $ makeEntryFunction cPrototypes <$> entrySymbol
+       return $ concat $ [ cPrototypes
+                         , cVars
+                         , cFunctions
+                         , fromMaybe [] ((\x -> [x]) <$> mainFunc) ]
         -- Divide toplevel items into variables and functions
-  where divider (TopLevelVar v)      = Left v
-        divider (TopLevelFunction f) = Right f
-        (vars, functions) = let ds = map divider declarations
-                            in (lefts ds, rights ds)
+  where vars       = [v | TopLevelVar       v <- declarations]
+        functions  = [f | TopLevelFunction  f <- declarations]
+        directives = [d | TopLevelDirective d <- declarations]
 
 emitC :: [C] -> Text.Text
 emitC = (Text.append cPrelude) . (flip emitSeparated) "\n"

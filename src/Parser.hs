@@ -7,8 +7,10 @@ module Parser (langParser
               , ScopedStatement(..)
               , ValueBinding(..)
               , FunctionBinding(..)
+              , Directive(..)
               , AST(..)) where
 
+import Data.Maybe (fromMaybe)
 import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -46,8 +48,13 @@ data FunctionBinding = FunctionBinding { identifier :: String
                                        , body :: Expression }
   deriving(Show)
 
-data AST = TopLevelVar ValueBinding
-         | TopLevelFunction FunctionBinding
+data Directive = Directive { name :: String
+                           , arguments :: [Expression] }
+  deriving(Show)
+
+data AST = TopLevelVar       ValueBinding
+         | TopLevelFunction  FunctionBinding
+         | TopLevelDirective Directive
   deriving(Show)
 
 --
@@ -105,6 +112,9 @@ identifierParser = do
     if str `elem` reservedWords
     then fail $ show str ++ " is a reserved word"
     else return str
+
+directiveStart :: LangParser String
+directiveStart = lexeme $ ((\x -> [x]) <$> char '@')
 
 --
 -- Type expressions
@@ -207,15 +217,28 @@ functionBindingParser = do
             return (identifier, typeExpr)
           parameterListParser = parentheses $ sepEndBy parameterParser (symbol ",")
 
+-- For a directive, parses:
+-- '@directive(a, b, ..)'
+--   ^^^^^^^^^^^^^^^^^^^
+-- The '@' is handled further up
+directiveParser :: LangParser Directive
+directiveParser = do
+  name <- lexeme identifierParser
+  arguments <- fromMaybe []
+    <$> (optional $ parentheses (sepEndBy expressionParser (symbol ",")))
+  return Directive { name, arguments }
+
 toplevelParser :: LangParser AST
 toplevelParser = do
-  defn <- reservedWord "var" <|> reservedWord "func"
+  defn <- reservedWord "var" <|> reservedWord "func" <|> directiveStart
 
   inner <- case defn of
     "var"  -> (valueBindingParser `endedBy` (symbol ";"))
           >>= return . TopLevelVar
     "func" -> functionBindingParser
           >>= return . TopLevelFunction
+    "@"    -> directiveParser
+          >>= return . TopLevelDirective
 
   space
   return inner

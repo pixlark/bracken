@@ -1,9 +1,0 @@
-$$ "variable-ordering.source" out
-#include <stdint.h>
- int64_t a = 0 ;
- int64_t f = 1 ;
- int64_t z = a + f ;
- int64_t g = z ;
- int64_t y = g + z ;
- int64_t x = a + y ;
-$$ "cyclic-variables.source" error

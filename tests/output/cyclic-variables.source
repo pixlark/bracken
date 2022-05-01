@@ -1,2 +1,0 @@
-var z: int = y;
-var y: int = z;

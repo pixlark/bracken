@@ -1,6 +1,0 @@
-func f(x: int) -> int
-do {
-  nothing;
-  y;
-  x
-}
