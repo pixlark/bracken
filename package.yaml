@@ -29,6 +29,9 @@ dependencies:
 - process
 - regex-tdfa
 - text
+- json
+- transformers
+- filepath
 
 library:
   source-dirs: src
@@ -43,3 +46,13 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - cMajor
+  cMajorTests:
+    main:                Main.hs
+    source-dirs:         test-app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - cMajor
+
