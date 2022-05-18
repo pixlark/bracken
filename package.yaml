@@ -53,6 +53,7 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -fwarn-unused-imports
     dependencies:
     - cMajor
 

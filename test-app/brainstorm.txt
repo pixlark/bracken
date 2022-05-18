@@ -1,0 +1,8 @@
+cMajorTests generate some/path/to/source
+runs some/path/to/source and throws the output in a file
+if compiled successfully, the executable is run and *that* output is put in a file
+
+cMajorTests run testdir/
+traverses testdir looking for source files that are paired with .output.json files
+when it finds them, it compiles and compares output to .output.json
+

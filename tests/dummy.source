@@ -1,0 +1,12 @@
+@entry(f)
+
+var _nothing : nothing = nothing;
+var _int : int = 5;
+var _bool : bool = true;
+var _func : func(bool) -> int = g;
+
+func g(b: bool) -> int
+do 0
+
+func f() -> nothing
+do nothing
